@@ -1,0 +1,100 @@
+# https://www.analyticsvidhya.com/blog/2018/10/predicting-stock-price-machine-learningnd-deep-learning-techniques-python/
+# https://colab.research.google.com/drive/15woz4RUHm-yDIQ1A-zWwADrX_mdFdx-S#scrollTo=2nRoBzT2lUwC
+# https://medium.com/@yuraist/how-to-upload-your-own-dataset-into-google-colab-e228727c87e9
+# https://github.com/hashicorp/vagrant/issues/5186
+
+#importing required libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, LSTM
+from sklearn.preprocessing import MinMaxScaler
+
+from matplotlib.pylab import rcParams
+rcParams['figure.figsize'] = 80,20
+
+scaler = MinMaxScaler(feature_range=(0, 1))
+
+#creating dataframe
+from nsepy import get_history
+from datetime import date
+train_data = get_history(symbol="NIFTY", start=date(2015,1,1), end=date(2019,1,1), index=True)
+valid_data = get_history(symbol="NIFTY", start=date(2019,4,1), end=date(2020,1,1), index=True)
+
+train_data = pd.DataFrame(train_data)
+valid_data = pd.DataFrame(valid_data)
+
+train_data['Date'] = train_data.index.values
+valid_data['Date'] = valid_data.index.values
+
+new_train_data = pd.DataFrame(index=range(0,len(train_data)),columns=['Date', 'Close'])
+for i in range(0,len(train_data)):
+    new_train_data['Date'][i] = train_data['Date'][i]
+    new_train_data['Close'][i] = train_data['Close'][i]
+
+#setting index
+new_train_data.index = new_train_data.Date
+new_train_data.drop('Date', axis=1, inplace=True)
+
+new_valid_data = pd.DataFrame(index=range(0,len(valid_data)),columns=['Date', 'Close'])
+for i in range(0,len(valid_data)):
+    new_valid_data['Date'][i] = valid_data['Date'][i]
+    new_valid_data['Close'][i] = valid_data['Close'][i]
+
+#setting index
+new_valid_data.index = new_valid_data.Date
+new_valid_data.drop('Date', axis=1, inplace=True)
+
+#creating train and test sets
+train = new_train_data
+valid = new_valid_data
+
+#converting dataset into x_train and y_train
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(new_train_data)
+
+x_train, y_train = [], []
+for i in range(1000,len(train)):
+    x_train.append(scaled_data[i-1000:i,0])
+    y_train.append(scaled_data[i,0])
+
+x_train, y_train = np.array(x_train), np.array(y_train)
+x_train = np.reshape(x_train, (x_train.shape[0],x_train.shape[1],1))
+
+# create and fit the LSTM network
+model = Sequential()
+model.add(LSTM(units=50, return_sequences=True, input_shape=(x_train.shape[1],1)))
+model.add(LSTM(units=50))
+model.add(Dense(1))
+
+model.compile(loss='mean_squared_error', optimizer='adam')
+model.fit(x_train, y_train, epochs=1, batch_size=1, verbose=2)
+
+#predicting 200 values, using past 1000 from the train data
+inputs = new_train_data[len(new_train_data) - len(valid) - 1000:].values
+inputs = inputs.reshape(-1,1)
+inputs  = scaler.transform(inputs)
+
+X_test = []
+for i in range(1000,inputs.shape[0]):
+    X_test.append(inputs[i-1000:i,0])
+
+X_test = np.array(X_test)
+
+X_test = np.reshape(X_test, (X_test.shape[0],X_test.shape[1],1))
+closing_price = model.predict(X_test)
+closing_price = scaler.inverse_transform(closing_price)
+
+
+rms=np.sqrt(np.mean(np.power((valid-closing_price),2)))
+rms
+
+#for plotting
+#train = new_data[:987]
+#valid = new_data[987:]
+valid['Predictions'] = closing_price
+plt.plot(train['Close'])
+plt.plot(valid[['Close','Predictions']])
+plt.savefig('/vagrant/predicted_nifty.png')
